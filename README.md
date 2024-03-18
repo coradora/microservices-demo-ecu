@@ -12,6 +12,25 @@ Kubernetes, GKE, Istio, Stackdriver, and gRPC. This application
 works on any Kubernetes cluster, like Google
 Kubernetes Engine (GKE). It’s **easy to deploy with little to no configuration**.
 
+## Anthos Information
+### What is Anthos?
+* Anthos is a Google Cloud provided tool for managing multiple clusters, known as fleets. It is considered a ‘step up’ from Kubernetes as it allows for enterprises to control and scale multiple clusters in tandem, instead of just one.
+* Benefits of using Anthos:
+  * Automatic scaling.
+  * Fleet-wide networking features. Instead of managing the networks each cluster and containers directly, Anthos provides the ability to control traffic throughout the fleet.
+  * Identity Management (IAM), providing authentication and user control for fleet workloads and users.
+  * Observability features, such as health monitoring, resource utilization, and security.
+  *Multi-cloud support, fleet can be on-premises, in the cloud, or both.
+
+### What is Istio?
+Istio is the open-source 'backbone' or framework that powers Anthos. It is a service mesh that allows organizations to observe and control how microservices interface and distribute data between eachother.
+* Pilot - Service Discovery/traffic management (Discovery)
+* Citadel - Service-to-service and end-user authentication (Certificates)
+* Galley - Configuration validation/ingestion/processing (Configuration)
+![image](https://github.com/coradora/microservices-demo-ecu/assets/78966342/de08730f-2019-4790-97da-9272b1ded74f)
+    * Image source: [https://istio.io/v1.6/docs/ops/deployment/architecture/](https://istio.io/v1.6/docs/ops/deployment/architecture/)
+
+ 
 ## Quickstart (GKE Anthos Tutorial)
 
 1. Open the [Google Cloud Shell](https://console.cloud.google.com/cloudshell=true).
