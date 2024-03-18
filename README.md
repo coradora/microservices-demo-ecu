@@ -185,10 +185,8 @@ Note: You can ignore any label "istio-injection" not found errors. The istio-inj
 14. Once you are done with it, delete the GKE cluster.
 
    ```sh
-   gcloud container clusters delete online-boutique \
-     --project=${PROJECT_ID} --region=${REGION}
+   gcloud container clusters delete $CLUSTER_NAME  --project=${PROJECT_ID} --zone=${ZONE}
    ```
-
    Deleting the cluster may take a few minutes.
 
 ## Service Mesh
