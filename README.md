@@ -2,7 +2,6 @@
 <img src="/src/frontend/static/icons/Hipster_HeroLogoMaroon.svg" width="300" alt="Online Boutique" />
 </p>
 
-![Continuous Integration](https://github.com/GoogleCloudPlatform/microservices-demo/workflows/Continuous%20Integration%20-%20Main/Release/badge.svg)
 
 **Online Boutique** is a cloud-first microservices demo application.  The application is a
 web-based e-commerce app where users can browse items,
@@ -13,63 +12,113 @@ Kubernetes, GKE, Istio, Stackdriver, and gRPC. This application
 works on any Kubernetes cluster, like Google
 Kubernetes Engine (GKE). It’s **easy to deploy with little to no configuration**.
 
-If you’re using this demo, please **★Star** this repository to show your interest!
+## Quickstart (GKE Anthos Tutorial)
 
-**Note to Googlers (Google employees):** Please fill out the form at [go/microservices-demo](http://go/microservices-demo).
+1. Open the [Google Cloud Shell](https://console.cloud.google.com/cloudshell=true).
+2. Create a new project
+```sh
+ gcloud projects create ecu-anthos-demo
+ ```
+3. Verify the project was created and copy its project ID.
+```sh
+ gcloud projects list
 
-## Screenshots
+PROJECT_ID: ecu-anthos-demo
+NAME: ecu-anthos-demo
+PROJECT_NUMBER: #####
+ ```
+4. Clone the repository.
 
-| Home Page                                                                                                         | Checkout Screen                                                                                                    |
-| ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| [![Screenshot of store homepage](/docs/img/online-boutique-frontend-1.png)](/docs/img/online-boutique-frontend-1.png) | [![Screenshot of checkout screen](/docs/img/online-boutique-frontend-2.png)](/docs/img/online-boutique-frontend-2.png) |
+ ```sh
+ git clone https://github.com/coradora/microservices-demo-ecu
+ cd microservices-demo-ecu/
+ ```
 
-## Quickstart (GKE)
-
-1. Ensure you have the following requirements:
-   - [Google Cloud project](https://cloud.google.com/resource-manager/docs/creating-managing-projects#creating_a_project).
-   - Shell environment with `gcloud`, `git`, and `kubectl`.
-
-2. Clone the repository.
-
-   ```sh
-   git clone https://github.com/GoogleCloudPlatform/microservices-demo
-   cd microservices-demo/
-   ```
-
-3. Set the Google Cloud project and region and ensure the Google Kubernetes Engine API is enabled.
-
-   ```sh
-   export PROJECT_ID=<PROJECT_ID>
-   export REGION=us-central1
-   gcloud services enable container.googleapis.com \
-     --project=${PROJECT_ID}
-   ```
-
-   Substitute `<PROJECT_ID>` with the ID of your Google Cloud project.
+5. Set the Google Cloud project and region and ensure the Google Kubernetes Engine API is enabled, replacing <PROJECT_ID> with the ID obtained in step 2a.
+   
+ ```sh
+ export PROJECT_ID=<PROJECT_ID>
+ export ZONE="us-central1-a"
+ export CLUSTER_NAME="onlineboutique"
+ gcloud config set project $PROJECT_ID
+ gcloud services enable container.googleapis.com \
+   --project=${PROJECT_ID}
+ ```
   
-4. Confirm the services have been enabled for your project.
+6. Confirm the services have been enabled for your project.
 
-   ```sh
-   gcloud services list --enabled --project=${PROJECT_ID}
-   ```
+ ```sh
+ gcloud services list --enabled --project=${PROJECT_ID}
+ ```
+
+7. Provision a GKE Cluster
+ 
+Create a GKE cluster with at least 4 nodes, machine type `e2-standard-4`, [GKE Workload Identity](https://cloud.google.com/kubernetes-engine/docs/how-to/workload-identity), and the [Kubernetes Gateway API resources](https://cloud.google.com/kubernetes-engine/docs/how-to/deploying-gateways):
 
 
-5. Create a GKE cluster and get the credentials for it.
+```sh
+gcloud container clusters create ${CLUSTER_NAME} \
+  --project=${PROJECT_ID} \
+  --zone=${ZONE} \
+  --machine-type=e2-standard-4 \
+  --num-nodes=4 \
+  --workload-pool ${PROJECT_ID}.svc.id.goog \
+  --gateway-api "standard"
+```
 
-   ```sh
-   gcloud container clusters create-auto online-boutique \
-     --project=${PROJECT_ID} --region=${REGION}
-   ```
+8. Provision managed `Anthos Service Mesh` via Fleet feature API
+  ```sh
+  # Enable ASM and Fleet APIs
+  gcloud services enable mesh.googleapis.com --project ${PROJECT_ID}
+  
+  # Enable ASM on the project's Fleet
+  gcloud container fleet mesh enable --project ${PROJECT_ID}
+  
+  # Register GKE cluster with Fleet
+  gcloud container fleet memberships register ${CLUSTER_NAME} \
+      --gke-cluster ${ZONE}/${CLUSTER_NAME} \
+      --enable-workload-identity
+  
+  FLEET_PROJECT_NUMBER=$(gcloud projects describe ${PROJECT_ID} --format 'value(projectNumber)')
+  # Apply mesh_id label to clusters that should be added to the service mesh
+  gcloud container clusters update --project ${PROJECT_ID} ${CLUSTER_NAME} \
+      --zone ${ZONE} --update-labels="mesh_id=proj-$FLEET_PROJECT_NUMBER"
+  
+  # Enable managed Anthos Service Mesh on the cluster
+  gcloud container fleet mesh update --project ${PROJECT_ID} \
+      --management automatic \
+      --memberships ${CLUSTER_NAME}
+  
+  # Enable sidecar injection for Kubernetes namespace where workload is deployed
+  kubectl label namespace default istio-injection- istio.io/rev=asm-managed --overwrite
+  ```
+Note: You can ignore any label "istio-injection" not found errors. The istio-injection=enabled annotation would also work but ASM prefers revision labels.
 
-   Creating the cluster may take a few minutes.
+9. Add Istio Manifest using Kustomize
+  ```sh
+  cd kustomize/
+  kustomize edit add component components/service-accounts
+  kustomize edit add component components/service-mesh-istio
+  ```
+  
+  This will update the `kustomize/kustomization.yaml` file which could be similar to:
+  ```yaml
+  apiVersion: kustomize.config.k8s.io/v1beta1
+  kind: Kustomization
+  resources:
+  - base
+  components:
+  - components/service-accounts
+  - components/service-mesh-istio
+  ```
 
-6. Deploy Online Boutique to the cluster.
+9. Deploy Online Boutique to the cluster.
 
-   ```sh
-   kubectl apply -f ./release/kubernetes-manifests.yaml
-   ```
+  ```sh
+  kubectl apply -k
+  ```
 
-7. Wait for the pods to be ready.
+10. Wait for the pods to be ready.
 
    ```sh
    kubectl get pods
@@ -78,22 +127,23 @@ If you’re using this demo, please **★Star** this repository to show your int
    After a few minutes, you should see the Pods in a `Running` state:
 
    ```
-   NAME                                     READY   STATUS    RESTARTS   AGE
-   adservice-76bdd69666-ckc5j               1/1     Running   0          2m58s
-   cartservice-66d497c6b7-dp5jr             1/1     Running   0          2m59s
-   checkoutservice-666c784bd6-4jd22         1/1     Running   0          3m1s
-   currencyservice-5d5d496984-4jmd7         1/1     Running   0          2m59s
-   emailservice-667457d9d6-75jcq            1/1     Running   0          3m2s
-   frontend-6b8d69b9fb-wjqdg                1/1     Running   0          3m1s
-   loadgenerator-665b5cd444-gwqdq           1/1     Running   0          3m
-   paymentservice-68596d6dd6-bf6bv          1/1     Running   0          3m
-   productcatalogservice-557d474574-888kr   1/1     Running   0          3m
-   recommendationservice-69c56b74d4-7z8r5   1/1     Running   0          3m1s
-   redis-cart-5f59546cdd-5jnqf              1/1     Running   0          2m58s
-   shippingservice-6ccc89f8fd-v686r         1/1     Running   0          2m58s
+  NAME                                     READY   STATUS    RESTARTS   AGE
+  adservice-85dcbf69d9-l2j95               1/2     Running   0          39s
+  cartservice-7558dc659b-zxrwn             2/2     Running   0          39s
+  checkoutservice-7c76547c-cf72l           2/2     Running   0          39s
+  currencyservice-65bdb74d87-cfk5w         2/2     Running   0          39s
+  emailservice-647bf84659-v7h22            2/2     Running   0          39s
+  frontend-7564657f6f-7rvfx                2/2     Running   0          38s
+  istio-gateway-istio-589c949445-cr86n     1/1     Running   0          35s
+  loadgenerator-6fb8595bb6-p5vl6           2/2     Running   0          38s
+  paymentservice-6c788bbc9-gn2wq           2/2     Running   0          37s
+  productcatalogservice-6fb8967c89-fhh9t   2/2     Running   0          37s
+  recommendationservice-7967ff57-fp277     2/2     Running   0          37s
+  redis-cart-76b9545755-2rj2c              1/1     Running   0          9m34s
+  shippingservice-5454849755-7hc69         2/2     Running   0          36s
    ```
 
-8. Access the web frontend in a browser using the frontend's external IP.
+11. Access the web frontend in a browser using the frontend's external IP.
 
    ```sh
    kubectl get service frontend-external | awk '{print $4}'
@@ -101,9 +151,19 @@ If you’re using this demo, please **★Star** this repository to show your int
 
    Visit `http://EXTERNAL_IP` in a web browser to access your instance of Online Boutique.
 
-9. Congrats! You've deployed the default Online Boutique. To deploy a different variation of Online Boutique (e.g., with Google Cloud Operations tracing, Istio, etc.), see [Deploy Online Boutique variations with Kustomize](#deploy-online-boutique-variations-with-kustomize).
+12. Navigate to [https://console.cloud.google.com/kubernetes/list/overview&cloudshell=true](https://console.cloud.google.com/kubernetes/list/overview).
+  NOTE: You may need to enable GKE Enterprise to view the next bullets.
+  * On the left hand navigation menu, click on "Clusters" and click "onlineboutique"
+    * Select the Nodes category, and click on any of the Nodes under the Nodes section.
+    * You should see a list of Pods. These are the services running within the k8s cluster.
+  * On the left hand navigation menu, click on "Gateways, Services, & Ingress" underneath Networking. 
+    * Select the Services category. Note that each service has its own Endpoint IP, as well as the load balancer we accessed in Step 11 and the Istio gateway. These Endpoints are how pods within a cluster communicate with eachother, and the Istio gateway controls & monitors traffic going in and out of the cluster.
+    * ![image](https://github.com/coradora/microservices-demo-ecu/assets/78966342/6d52f1f0-7d7f-45a4-937e-ae97ce8f16ab)
 
-10. Once you are done with it, delete the GKE cluster.
+  * On the left hand navigation menu, select "Service Mesh"
+    * You should see a list of all available services running within a cluster, as well as the Istio gateway.
+
+14. Once you are done with it, delete the GKE cluster.
 
    ```sh
    gcloud container clusters delete online-boutique \
@@ -112,21 +172,10 @@ If you’re using this demo, please **★Star** this repository to show your int
 
    Deleting the cluster may take a few minutes.
 
-## Use Terraform to provision a GKE cluster and deploy Online Boutique
+## Service Mesh
 
-The [`/terraform` folder](/terraform) contains instructions for using [Terraform](https://www.terraform.io/intro) to replicate the steps from [**Quickstart (GKE)**](#quickstart-gke) above.
+![image](https://github.com/coradora/microservices-demo-ecu/assets/78966342/cfd3791f-2451-44b8-8988-41ef152b6f8d)
 
-## Other deployment variations
-
-- **Istio/Anthos Service Mesh**: [See these instructions.](/kustomize/components/service-mesh-istio/README.md)
-- **non-GKE clusters (Minikube, Kind)**: see the [Development Guide](/docs/development-guide.md)
-
-## Deploy Online Boutique variations with Kustomize
-
-The [`/kustomize` folder](/kustomize) contains instructions for customizing the deployment of Online Boutique with different variations such as:
-* integrating with [Google Cloud Operations](/kustomize/components/google-cloud-operations/)
-* replacing the in-cluster Redis cache with [Google Cloud Memorystore (Redis)](/kustomize/components/memorystore), [AlloyDB](/kustomize/components/alloydb) or [Google Cloud Spanner](/kustomize/components/spanner)
-* etc.
 
 ## Architecture
 
@@ -177,29 +226,7 @@ See the [Development guide](/docs/development-guide.md) to learn how to run and 
 
 ## Demos featuring Online Boutique
 
-- [The new Kubernetes Gateway API with Istio and Anthos Service Mesh (ASM)](https://medium.com/p/9d64c7009cd)
-- [Use Azure Redis Cache with the Online Boutique sample on AKS](https://medium.com/p/981bd98b53f8)
-- [Sail Sharp, 8 tips to optimize and secure your .NET containers for Kubernetes](https://medium.com/p/c68ba253844a)
-- [Deploy multi-region application with Anthos and Google cloud Spanner](https://medium.com/google-cloud/a2ea3493ed0)
-- [Use Google Cloud Memorystore (Redis) with the Online Boutique sample on GKE](https://medium.com/p/82f7879a900d)
-- [Use Helm to simplify the deployment of Online Boutique, with a Service Mesh, GitOps, and more!](https://medium.com/p/246119e46d53)
-- [How to reduce microservices complexity with Apigee and Anthos Service Mesh](https://cloud.google.com/blog/products/application-modernization/api-management-and-service-mesh-go-together)
-- [gRPC health probes with Kubernetes 1.24+](https://medium.com/p/b5bd26253a4c)
-- [Use Google Cloud Spanner with the Online Boutique sample](https://medium.com/p/f7248e077339)
-- [Seamlessly encrypt traffic from any apps in your Mesh to Memorystore (redis)](https://medium.com/google-cloud/64b71969318d)
-- [Strengthen your app's security with Anthos Service Mesh and Anthos Config Management](https://cloud.google.com/service-mesh/docs/strengthen-app-security)
-- [From edge to mesh: Exposing service mesh applications through GKE Ingress](https://cloud.google.com/architecture/exposing-service-mesh-apps-through-gke-ingress)
-- [Take the first step toward SRE with Cloud Operations Sandbox](https://cloud.google.com/blog/products/operations/on-the-road-to-sre-with-cloud-operations-sandbox)
-- [Deploying the Online Boutique sample application on Anthos Service Mesh](https://cloud.google.com/service-mesh/docs/onlineboutique-install-kpt)
 - [Anthos Service Mesh Workshop: Lab Guide](https://codelabs.developers.google.com/codelabs/anthos-service-mesh-workshop)
-- [KubeCon EU 2019 - Reinventing Networking: A Deep Dive into Istio's Multicluster Gateways - Steve Dake, Independent](https://youtu.be/-t2BfT59zJA?t=982)
-- Google Cloud Next'18 SF
-  - [Day 1 Keynote](https://youtu.be/vJ9OaAqfxo4?t=2416) showing GKE On-Prem
-  - [Day 3 Keynote](https://youtu.be/JQPOPV_VH5w?t=815) showing Stackdriver
-    APM (Tracing, Code Search, Profiler, Google Cloud Build)
-  - [Introduction to Service Management with Istio](https://www.youtube.com/watch?v=wCJrdKdD6UM&feature=youtu.be&t=586)
-- [Google Cloud Next'18 London – Keynote](https://youtu.be/nIq2pkNcfEI?t=3071)
-  showing Stackdriver Incident Response Management
 
 ---
 
